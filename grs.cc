@@ -9,6 +9,7 @@
 #define ODD_PERIOD
 #define USE_FIB
 #define TEST_BITS 128
+#define WINDOW_SHIFT 18
 
 
 #define RATIO128 (((uint128_t)0x9e3779b97f4a7c15ull << 64) + 0xf39cc0605cedc833ull)
@@ -70,13 +71,13 @@ static inline uinttest_t mla(uinttest_t x, uinttest_t n, uinttest_t y) {
 }
 
 
-static inline uinttest_t fibsearch(uinttest_t x0, uinttest_t step,
+static inline uinttest_t fibsearch(uinttest_t x0, uinttest_t phi,
     uinttest_t window, uinttest_t stop, uinttest_t *n) {
   uinttest_t x = x0;
   uinttest_t prev = 1, curr = 1;
 
   while (curr <= stop) {
-    x = mla(x0, curr, step);
+    x = mla(x0, curr, phi);
     if (x <= window) {
       *n += curr;
       return x;
@@ -89,7 +90,7 @@ static inline uinttest_t fibsearch(uinttest_t x0, uinttest_t step,
   x = x0;
   curr = 0;
   do {
-    x = add(x, step);
+    x = add(x, phi);
     curr++;
   } while (x > window);
   *n += curr;
@@ -140,7 +141,7 @@ int main(int argc, char *argv[]) {
   std::set<uinttest_t> visited;
   uinttest_t x = 0;
   uinttest_t window = UINTTEST_MAX;
-  uinttest_t step = TEST_STEP;
+  uinttest_t phi = TEST_STEP;
   uinttest_t worst = UINTTEST_MAX;
   uinttest_t n = 1;
   uinttest_t old_n = 1;
@@ -149,14 +150,14 @@ int main(int argc, char *argv[]) {
 
   visited.insert(x);
 
-  if (argc >= 2) step = strtoull(argv[1], NULL, 0);
+  if (argc >= 2) phi = strtoull(argv[1], NULL, 0);
 
   while (worst > 1) {
 #if defined(USE_FIB)
-    x = fibsearch(x, step, window, n >> (n < 10000 ? 0 : 8), &n);
+    x = fibsearch(x, phi, window, n >> (n < 10000 ? 0 : 8), &n);
 #else
     do {
-      x = add(x, step);
+      x = add(x, phi);
       n++;
     } while (x > window);
 #endif
@@ -167,12 +168,12 @@ int main(int argc, char *argv[]) {
       printf("OOPS!\n");
       break;
     }
-    uinttest_t d, oldworst = worst;
+    uinttest_t oldworst = worst;
     auto a = r.first, b = r.first;
     a++, b--;
-    d = x - ((b != visited.end()) ? *b : 0);
-    if (worst > d) worst = d;
-    d = ((a != visited.end()) ? *a : UINTTEST_MAX) - x;
+    uinttest_t d = x - (b != visited.end() ? *b : 0);
+    uinttest_t e = (a != visited.end() ? *a : UINTTEST_MAX) - x;
+    if (d > e) d = e;
     if (worst > d) worst = d;
 
     if (worst != oldworst) {
@@ -182,13 +183,14 @@ int main(int argc, char *argv[]) {
       if (!best_n && worst < (ideal >> 2)) {
         best_n = n - 1;
         printf("p=" PERIOD_STR ", k=%s (0x%s), n=%s (0x%s)\n",
-            dirty_dec(step, 1), dirty_hex(step, 1),
+            dirty_dec(phi, 1), dirty_hex(phi, 1),
             dirty_dec(best_n, 1), dirty_hex(best_n, 1));
 #if 1
         break;
 #endif
       }
-      while ((window >> 16) > worst) window >>= 1;
+      while ((window >> WINDOW_SHIFT) > worst) window = worst << WINDOW_SHIFT;
+      if (window < x) window = x;
       hits = 0;
       old_n = n;
     }
